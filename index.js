@@ -13,9 +13,18 @@ module.exports = class {
     let file = fs.readFileSync(fileName);
     this.structure = yaml.load(file);
 
-    validate(this.structure);
+    try {
+      validateSyntax(this.structure);
+    } catch (err) {
+      console.log(err);
+      throw new Error("There was an error with init.");
+    }
 
-    let db = this.__getConnection();
+    let username = process.env[this.structure.username];
+    let password = process.env[this.structure.password];
+    // todo: check to make sure that these are set, helpful warning to user
+
+    let db = this.__getConnection(username, password);
     db.then((db) => {
       this.db = db;
     })
@@ -50,9 +59,18 @@ module.exports = class {
     });
   }
 
-  __getConnection() {
+  __getConnection(username, password) {
     return new Promise((resolve, reject) => {
-      MongoClient.connect(this.structure.uri, function(err, db) {
+      let nonauthUri = this.structure.uri;
+      let protocalIndex = nonauthUri.indexOf('://');
+      if (protocalIndex < 0) {
+        reject("There is no protocal specified in the uri.");
+      }
+      let protocal = nonauthUri.substring(0, protocalIndex);
+      // '://' is 3 characters long
+      let hostPortCollectionUri = nonauthUri.substring(protocalIndex + 3);
+      let uri = `${protocal}://${username}:${password}@${hostPortCollectionUri}`;
+      MongoClient.connect(uri, function(err, db) {
         if (err) {
           reject(err);
           return;
@@ -128,7 +146,7 @@ module.exports = class {
 }
 
 // validate the syntax of the structure file
-function validate(structure) {
+function validateSyntax(structure) {
   let failed = false;
 
   if (!structure.uri) {
@@ -136,6 +154,18 @@ function validate(structure) {
     failed = true;
   }
 
-  if (failed) new Error("Check error logs for errors.");
+  if (!structure.username) {
+    console.error("No username parameter found.");
+    failed = true;
+  }
+
+  if (!structure.password) {
+    console.error("No password parameter found.");
+    failed = true;
+  }
+
+  if (failed) {
+    throw new Error("Check error logs for errors.");
+  }
   return;
 }
