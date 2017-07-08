@@ -16,3 +16,7 @@ routes:
       collection: entries
       filter:
         - meta.stage: Public
+  - /entries:
+      method: POST
+      collection: entries # required
+      prepost: './examples/prepost.js'
