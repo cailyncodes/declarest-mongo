@@ -6,7 +6,7 @@ routes:
       method: GET # optional (default GET)
       collection: trees # required
       filter: ~ # optional (default ~)
-  - /entries:
+  - /trees:
       method: POST
-      collection: entries # required
+      collection: trees # required
       prepost: './examples/pre-methods/prepost.js'
