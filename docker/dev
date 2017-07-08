@@ -1,2 +1,2 @@
 #!/bin/sh
-docker run -itd -p 80:3000 -w $PWD -v $PWD:$PWD --name declarest -u $(id -u $USER) yarn:0.27.5 bash
+docker run -itd -p 80:8000 -w $PWD -v $PWD:$PWD --name declarest -u $(id -u $USER) yarn:0.27.5 bash
