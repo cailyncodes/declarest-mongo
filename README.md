@@ -8,14 +8,13 @@ Look no further! DeclaRest is here!
 
 ## Usage
 
-Simply require the file, load your structure.yaml file, and start!
+Simply require the file, create a class with structure.yaml file, and start!
 
 
 ```js
-const declarest = require('declarest-mongo');
+const Declarest = require('declarest-mongo');
 
-declarest.load('/path/to/your/structure.yaml');
-declarest.start();
+Declarest('/path/to/your/structure.yaml').start();
 ```
 That's it! You will now have a REST API running on port 8000.
 
@@ -26,7 +25,7 @@ this section is for you.
 
 You can pass in an optional `options` argument to the start method.
 
-For example, `declarest.start({ port: 4567 });`.
+For example, `Declarest('structure.yaml').start({ port: 4567 });`.
 
 Available options are:
 
