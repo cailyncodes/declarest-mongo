@@ -50,14 +50,14 @@ passed as a function argument.)
 You don't get to use whatever syntax you want though. Below is the permissible syntax. For examples, see the `examples/` directory.
 
 ```yaml
-  uri: Required
+uri: Required
   routes: Optional (but nothing will happen without it)
-  	- /desired/path/of/endpoint
-  		method: Optional (default GET)
-        collection: Required
-        filter: Optional (default ~, get all documents; only valid with GET)
-        projection: Optional (default ~, get all fields; coming soon)
-          - fieldName: Boolean        
+    - /desired/path/of/endpoint
+      method: Optional (default GET)
+      collection: Required
+      filter: Optional (default ~, get all documents; only valid with GET)
+      projection: Optional (default ~, get all fields; coming soon)
+        - fieldName: Boolean        
 ```
 
 ## Contributing
