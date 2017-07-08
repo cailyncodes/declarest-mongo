@@ -1,5 +1,10 @@
-const restup = require('../index.js');
-const path = require('path');
+const Declarest = require('../index.js');
 
-let file = path.resolve(__dirname, 'desired-syntax.yaml');
-restup(file);
+const path = require('path');
+let file = path.resolve(__dirname, 'example1.yaml');
+
+new Declarest(file).start();
+
+file = path.resolve(__dirname, 'example2.yaml');
+
+new Declarest(file).start({port:3001});
