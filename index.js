@@ -32,7 +32,7 @@ module.exports = class {
     // create server
     this.server = new Hapi.Server();
     this.server.connection({
-      port: options.port || 3000,
+      port: options.port || 8000,
       host: options.host || '0.0.0.0',
       routes: {
         cors: true
