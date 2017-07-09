@@ -26,7 +26,7 @@ module.exports = class {
       validateSyntax(this.structure);
     } catch (err) {
       console.log(err);
-      throw new Error("There was an error with init.");
+      throw "Could not init declarest.";
     }
 
     let username = process.env[this.structure.username];
@@ -36,12 +36,11 @@ module.exports = class {
     try {
       // create the database connection
       this.db = await this.__getConnection(username, password);
-      // we await b/c need to make sure we can connect to the database 
+      // create the routes
       this.routes = this.__constructRoutes();
-      return this;
     } catch (err) {
       console.error(err);
-      throw "Could not connect to the database.";
+      throw "Could not init declarest.";
     }
   }
 
@@ -90,11 +89,10 @@ module.exports = class {
       let uri = `${protocal}://${username}:${password}@${hostPortCollectionUri}`;
       MongoClient.connect(uri, function(err, db) {
         if (err) {
-          reject(err);
-          return;
+          console.error(err);
+          reject('Could not connect to the database');
         }
         resolve(db);
-        return;
       });
     });
   }
@@ -109,7 +107,12 @@ module.exports = class {
   __constructRoutes() {
     let routes = this.structure.routes;
     return routes.map((route) => {
-      return this.__constructRoute(route);
+      try {
+        return this.__constructRoute(route);
+      } catch (err) {
+        console.error(err);
+        throw new Error("Error constructing routes.");
+      }
     });
   }
 
@@ -118,7 +121,13 @@ module.exports = class {
     let path = Object.keys(route)[0];
     route = route[path];
     let method = route.method || 'GET';
-    let handler = this.__constructHandler(method, route);
+    let handler;
+    try {
+      handler = this.__constructHandler(method, route);
+    } catch (err) {
+      console.error(err);
+      throw new Error("Unable to construct route handler.");
+    }
     return {
       method: method,
       path: path,
@@ -137,9 +146,12 @@ module.exports = class {
       case 'POST':
         handler = this.__constructPostHandler(route);
         break;
-      default:
-        console.error("Invalid method found.");
+      case 'PUT':
+        handler = this.__constructPutHandler(route);
         break;
+      default:
+        console.error("Invalid method provided.");
+        throw new Error();
     }
     return handler;
   }
@@ -217,6 +229,67 @@ module.exports = class {
       } else {
         // if not, just call the postHandler
         postHandler(req, resp);
+      }
+    }).bind(this);
+  }
+
+  // create a new put handler
+  __constructPutHandler(route) {
+    // if there is no preput specified, we don't want to run it
+    let preput = false;
+    // check if prepost was specified
+    if (route.preput) {
+      // if it is, create the prepost function from the supplied file
+      preput = function(req, resp, next) {
+        require(route.preput)(req, resp, next);
+      }
+    }
+    // return the method handler function
+    return (function(req, resp) {
+      // create the put handler function
+      // this function is the main db interacting function
+      let putHandler = (function(req, resp) {
+        let collection = this.db.collection(route.collection);
+        // get the body as a JS object, we will be inserting this
+        // into the database
+        let body = req.payload;
+
+        // change _id to an ObjectId
+        body._id = new MongoClient.ObjectId(body._id);
+        
+        // attempt to update the document
+        collection.findOneAndUpdate(
+          { _id: body._id },
+          { $set : body }
+        )
+        .then((result) => {
+          // report success
+          let success = {
+            status: 200,
+          }
+          resp(success).code(success.status);
+          return;
+        })
+        .catch((err) => {
+          // report error
+          console.error(err);
+          let error = {
+            status: 400,
+            error: "We could not add the provided document."
+          }
+          resp(error).code(error.status);
+          return;
+        });
+      }).bind(this);
+
+      // check whether we need to run prepost
+      if (preput) {
+        // if so, call the created prepost function
+        // we pass in postHandler as the callback
+        preput(req, resp, putHandler);
+      } else {
+        // if not, just call the postHandler
+        putHandler(req, resp);
       }
     }).bind(this);
   }
