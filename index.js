@@ -113,14 +113,36 @@ module.exports = class {
         console.error(err);
         throw new Error("Error constructing routes.");
       }
-    });
+    }).reduce((acc, cur) => acc.concat(cur), []);
   }
 
   // construct a route based on the structure
   __constructRoute(route) {
+    let routesToReturn = [];
+
     let path = Object.keys(route)[0];
     route = route[path];
     let method = route.method || 'GET';
+    
+    // check if we need to create subroute
+    let subroute = route.subroute || null;
+    if (method == 'GET' && subroute) {
+      let handler;
+      try {
+        handler = this.__constructHandler(method, route, subroute);
+      } catch (err) {
+        console.error(err);
+        throw new Error("Unable to construct route handler.");
+      }
+      let subroutePath = `${path}/{${subroute}}`;
+      routesToReturn.push({
+        method: method,
+        path: subroutePath,
+        handler: handler
+      })
+    }
+
+    // create the non-subroute route
     let handler;
     try {
       handler = this.__constructHandler(method, route);
@@ -128,20 +150,21 @@ module.exports = class {
       console.error(err);
       throw new Error("Unable to construct route handler.");
     }
-    return {
+    routesToReturn.push({
       method: method,
       path: path,
       handler: handler
-    };
+    });
+    return routesToReturn;
   }
 
   // construct the handler that will interact with
   // mongodb pursuant to the structure
-  __constructHandler(method, route) {
+  __constructHandler(method, route, subroute) {
     let handler;
     switch (method) {
       case 'GET':
-        handler = this.__constructGetHandler(route);
+        handler = this.__constructGetHandler(route, subroute);
         break;
       case 'POST':
         handler = this.__constructPostHandler(route);
@@ -156,25 +179,67 @@ module.exports = class {
     return handler;
   }
 
-  __constructGetHandler(route) {
-    let filters = route.filter || [];
-    return (function(req, resp) {
-      let collection = this.db.collection(route.collection);
-      let cursor = collection.find({});
+  __constructGetHandler(route, subroute) {
+    if (subroute) {
+      let filters = route.filter || [];
+      return (function(req, resp) {
+        let collection = this.db.collection(route.collection);
+        collection.findOne({
+          // brackets arround subroute make it resolve the variable
+          [subroute] : MongoClient.ObjectId(req.params[subroute])
+        })
+        .then((result) => {
+          if (result == null) {
+            let error = {
+              status: 404
+            };
+            resp(error).code(error.status);
+            return;
+          }
+          // check the filters
+          for (let filter of filters) {
+            let key = Object.keys(filter)[0];
+            let value = filter[key];
+            if (result[key] != value) {
+              let error = {
+                status: 404
+              };
+              resp(error).code(error.status);
+              return;
+            }
+          }
 
-      // add filters to the search
-      for (let filter of filters) {
-        cursor = cursor.filter(filter);
-      }
-      
-      cursor.toArray(function(err, docs) {
-        if (err) {
-          console.error(err);
-          resp("Oh oh!");
+          resp(result);
+          return;
+        })
+        .catch((err) => {
+          let error = {
+            status: 400
+          };
+          resp(error).code(error.status);
+          return;
+        });
+      }).bind(this);
+    } else {
+      let filters = route.filter || [];
+      return (function(req, resp) {
+        let collection = this.db.collection(route.collection);
+        let cursor = collection.find({});
+
+        // add filters to the search
+        for (let filter of filters) {
+          cursor = cursor.filter(filter);
         }
-        resp(docs);
-      });
-    }).bind(this);
+        
+        cursor.toArray(function(err, docs) {
+          if (err) {
+            console.error(err);
+            resp("Oh oh!");
+          }
+          resp(docs);
+        });
+      }).bind(this);
+    }
   }
 
   // create a new post handler
