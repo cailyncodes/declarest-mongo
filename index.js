@@ -5,33 +5,65 @@ const Hapi = require('hapi');
 
 module.exports = class {
   constructor(fileName) {
-    this.load(fileName);
+    this.fileName = fileName;
     return this;
   }
 
-  load(fileName) {
-    let file = fs.readFileSync(fileName);
+  async init() {
+    // check whether we have already called init
+    if (this.initCalled) {
+      return this;
+    }
+    // otherwise note that we just called init
+    this.initCalled = true;
+    // read the file (TODO: this could probably be async'ed)
+    let file = fs.readFileSync(this.fileName);
+    // parse the file
     this.structure = yaml.load(file);
 
-    validate(this.structure);
+    // validate the file
+    try {
+      validateSyntax(this.structure);
+    } catch (err) {
+      console.log(err);
+      throw "Could not init declarest.";
+    }
 
-    let db = this.__getConnection();
-    db.then((db) => {
-      this.db = db;
-    })
-    .catch((err) => {
-      throw new Error("There was an error connecting to the database.");
-    });
-
-    this.routes = this.__constructRoutes();
+    let username = process.env[this.structure.username];
+    let password = process.env[this.structure.password];
+    // todo: check to make sure that these are set, helpful warning to user
+    
+    try {
+      // create the database connection
+      this.db = await this.__getConnection(username, password);
+      // create the routes
+      this.routes = this.__constructRoutes();
+    } catch (err) {
+      console.error(err);
+      throw "Could not init declarest.";
+    }
   }
 
-  start(options) {
+  async start(options) {
+    if (!this.initCalled) {
+      try {
+        await this.init();
+      } catch (err) {
+        console.error(err);
+        return;
+      }
+    }
     options = options || {};
 
     // create server
     this.server = new Hapi.Server();
-    this.server.connection({ port: options.port || 3000, host: options.host || '0.0.0.0' });
+    this.server.connection({
+      port: options.port || 8000,
+      host: options.host || '0.0.0.0',
+      routes: {
+        cors: true
+      }
+    });
 
     this.__addRoutes();
 
@@ -44,15 +76,23 @@ module.exports = class {
     });
   }
 
-  __getConnection() {
+  async __getConnection(username, password) {
     return new Promise((resolve, reject) => {
-      MongoClient.connect(this.structure.uri, function(err, db) {
+      let nonauthUri = this.structure.uri;
+      let protocalIndex = nonauthUri.indexOf('://');
+      if (protocalIndex < 0) {
+        reject("There is no protocal specified in the uri.");
+      }
+      let protocal = nonauthUri.substring(0, protocalIndex);
+      // '://' is 3 characters long
+      let hostPortCollectionUri = nonauthUri.substring(protocalIndex + 3);
+      let uri = `${protocal}://${username}:${password}@${hostPortCollectionUri}`;
+      MongoClient.connect(uri, function(err, db) {
         if (err) {
-          reject(err);
-          return;
+          console.error(err);
+          reject('Could not connect to the database');
         }
         resolve(db);
-        return;
       });
     });
   }
@@ -67,7 +107,12 @@ module.exports = class {
   __constructRoutes() {
     let routes = this.structure.routes;
     return routes.map((route) => {
-      return this.__constructRoute(route);
+      try {
+        return this.__constructRoute(route);
+      } catch (err) {
+        console.error(err);
+        throw new Error("Error constructing routes.");
+      }
     });
   }
 
@@ -76,7 +121,13 @@ module.exports = class {
     let path = Object.keys(route)[0];
     route = route[path];
     let method = route.method || 'GET';
-    let handler = this.__constructHandler(method, route);
+    let handler;
+    try {
+      handler = this.__constructHandler(method, route);
+    } catch (err) {
+      console.error(err);
+      throw new Error("Unable to construct route handler.");
+    }
     return {
       method: method,
       path: path,
@@ -92,9 +143,15 @@ module.exports = class {
       case 'GET':
         handler = this.__constructGetHandler(route);
         break;
-      default:
-        console.error("Invalid method found.");
+      case 'POST':
+        handler = this.__constructPostHandler(route);
         break;
+      case 'PUT':
+        handler = this.__constructPutHandler(route);
+        break;
+      default:
+        console.error("Invalid method provided.");
+        throw new Error();
     }
     return handler;
   }
@@ -119,10 +176,127 @@ module.exports = class {
       });
     }).bind(this);
   }
+
+  // create a new post handler
+  __constructPostHandler(route) {
+    // if there is no prepost specified, we don't want to run it
+    let prepost = false;
+    // check if prepost was specified
+    if (route.prepost) {
+      // if it is, create the prepost function from the supplied file
+      prepost = function(req, resp, next) {
+        require(route.prepost)(req, resp, next);
+      }
+    }
+    // return the method handler function
+    return (function(req, resp) {
+      // create the post handler function
+      // this function is the main db interacting function
+      let postHandler = (function(req, resp) {
+        let collection = this.db.collection(route.collection);
+        // get the body as a JS object, we will be inserting this
+        // into the database
+        let body = req.payload;
+
+        // attempt to insert the document
+        collection.insertOne(body)
+        .then((result) => {
+          // report success
+          let success = {
+            status: 201,
+            id: result._id
+          }
+          resp(success).code(success.status);
+          return;
+        })
+        .catch((err) => {
+          // report error
+          console.error(err);
+          let error = {
+            status: 400,
+            error: "We could not add the provided document."
+          }
+          resp(error).code(error.status);
+          return;
+        });
+      }).bind(this);
+
+      // check whether we need to run prepost
+      if (prepost) {
+        // if so, call the created prepost function
+        // we pass in postHandler as the callback
+        prepost(req, resp, postHandler);
+      } else {
+        // if not, just call the postHandler
+        postHandler(req, resp);
+      }
+    }).bind(this);
+  }
+
+  // create a new put handler
+  __constructPutHandler(route) {
+    // if there is no preput specified, we don't want to run it
+    let preput = false;
+    // check if prepost was specified
+    if (route.preput) {
+      // if it is, create the prepost function from the supplied file
+      preput = function(req, resp, next) {
+        require(route.preput)(req, resp, next);
+      }
+    }
+    // return the method handler function
+    return (function(req, resp) {
+      // create the put handler function
+      // this function is the main db interacting function
+      let putHandler = (function(req, resp) {
+        let collection = this.db.collection(route.collection);
+        // get the body as a JS object, we will be inserting this
+        // into the database
+        let body = req.payload;
+
+        // change _id to an ObjectId
+        body._id = new MongoClient.ObjectId(body._id);
+        
+        // attempt to update the document
+        collection.findOneAndUpdate(
+          { _id: body._id },
+          { $set : body }
+        )
+        .then((result) => {
+          // report success
+          let success = {
+            status: 200,
+          }
+          resp(success).code(success.status);
+          return;
+        })
+        .catch((err) => {
+          // report error
+          console.error(err);
+          let error = {
+            status: 400,
+            error: "We could not add the provided document."
+          }
+          resp(error).code(error.status);
+          return;
+        });
+      }).bind(this);
+
+      // check whether we need to run prepost
+      if (preput) {
+        // if so, call the created prepost function
+        // we pass in postHandler as the callback
+        preput(req, resp, putHandler);
+      } else {
+        // if not, just call the postHandler
+        putHandler(req, resp);
+      }
+    }).bind(this);
+  }
 }
 
 // validate the syntax of the structure file
-function validate(structure) {
+function validateSyntax(structure) {
   let failed = false;
 
   if (!structure.uri) {
@@ -130,6 +304,18 @@ function validate(structure) {
     failed = true;
   }
 
-  if (failed) new Error("Check error logs for errors.");
+  if (!structure.username) {
+    console.error("No username parameter found.");
+    failed = true;
+  }
+
+  if (!structure.password) {
+    console.error("No password parameter found.");
+    failed = true;
+  }
+
+  if (failed) {
+    throw new Error("Check error logs for errors.");
+  }
   return;
 }

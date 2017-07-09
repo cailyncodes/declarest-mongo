@@ -10,13 +10,22 @@ Look no further! DeclaRest is here!
 
 Simply require the file, create a class with structure.yaml file, and start!
 
-
 ```js
 const Declarest = require('declarest-mongo');
 
 new Declarest('/path/to/your/structure.yaml').start();
 ```
 That's it! You will now have a REST API running on port 8000.
+
+Note: The above start method is a shortcut for what's actually happening:
+
+```js
+new Declarest(file)
+.init()
+.then((api) => api.start())
+.catch((err) => console.error(err));
+```
+You can use this approach if you need more fine grained control.
 
 ### Advanced Usage
 
@@ -41,14 +50,14 @@ passed as a function argument.)
 You don't get to use whatever syntax you want though. Below is the permissible syntax. For examples, see the `examples/` directory.
 
 ```yaml
-  uri: Required
+uri: Required
   routes: Optional (but nothing will happen without it)
-  	- /desired/path/of/endpoint
-  		method: Optional (default GET)
-        collection: Required
-        filter: Optional (default ~, get all documents; only valid with GET)
-        projection: Optional (default ~, get all fields; coming soon)
-          - fieldName: Boolean        
+    - /desired/path/of/endpoint
+      method: Optional (default GET)
+      collection: Required
+      filter: Optional (default ~, get all documents; only valid with GET)
+      projection: Optional (default ~, get all fields; coming soon)
+        - fieldName: Boolean        
 ```
 
 ## Contributing
